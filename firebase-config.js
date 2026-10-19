@@ -9,4 +9,4 @@ export const firebaseConfig = {
   appId: "1:237570126012:web:533b25dc950a859d61e0b9"
 };
 export const operatorUid = "TxkBB7hUKsRmEx8uuPDQzlnZtm33";
-export const guideUid = "Dbt34h5vtUaDXnzg7cjMFo5letC3";
+export const guideUid = "IuOPzNY33Qa3haHoR4Qb5wEMytG3";
