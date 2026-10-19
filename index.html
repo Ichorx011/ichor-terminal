@@ -252,43 +252,64 @@ document.addEventListener('click',async e=>{const button=e.target.closest('[data
  button.disabled=true;button.textContent='DELETING...';
  try{await deleteDoc(doc(db,'secureMessages',id))}catch(err){window.alert('메시지 삭제 실패: Firebase 규칙이 업데이트되었는지 확인해 주세요.');button.disabled=false;button.textContent='DELETE ×'}
 });
-document.addEventListener('submit',async e=>{if(e.target.id!=='msgForm')return;e.preventDefault();if(!roleMatches()||state!=='LIVE'||sending)return;const input=document.getElementById('msgInput');const value=input?.value.trim();if(!value||value.length>1000)return;sending=true;paint();try{await addDoc(messages,{senderUid:user.uid,text:value,createdAt:serverTimestamp()});input.value=''}catch(err){const help=document.getElementById('msgHelp');if(help)help.textContent='전송 실패 / Firebase 보안 규칙을 확인해 주세요.'}finally{sending=false;paint()}});
+document.addEventListener('submit',async e=>{if(e.target.id!=='msgForm')return;e.preventDefault();if(!roleMatches()||state!=='LIVE'||sending)return;const input=document.getElementById('msgInput');const value=input?.value.trim();if(!value||value.length>1000)return;sending=true;paint();try{const saved=await addDoc(messages,{senderUid:user.uid,text:value,createdAt:serverTimestamp()});input.value='';window.ichorNotifySent?.(saved.id).catch(err=>console.warn('ICHOR notification:',err))}catch(err){const help=document.getElementById('msgHelp');if(help)help.textContent='전송 실패 / Firebase 보안 규칙을 확인해 주세요.'}finally{sending=false;paint()}});
 </script><script type="module">
-const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-let pushRegistration = null;
-async function setupPushUI() {
-  const btn=document.getElementById('pushEnable');
-  const status=document.getElementById('pushStatus');
-  if(!btn||!status)return;
-  if(!('serviceWorker' in navigator)||!('PushManager' in window)||!('Notification' in window)){
-    btn.disabled=true;status.textContent='이 환경에서는 웹 푸시를 지원하지 않습니다.';return;
-  }
-  if(!isStandalone && /iPad|iPhone|iPod/.test(navigator.userAgent)){
-    btn.disabled=true;status.textContent='아이폰 Safari에서 홈 화면에 추가한 앱으로 실행해 주세요.';return;
-  }
-  if(Notification.permission==='granted'){
-    btn.textContent='NOTIFICATIONS ALLOWED';
-    btn.disabled=true;
-    status.textContent='알림 권한이 허용되어 있습니다. 서버 연결은 다음 단계에서 진행합니다.';
-  } else if(Notification.permission==='denied'){
-    btn.disabled=true;status.textContent='알림이 차단되어 있습니다. 아이폰 설정에서 PROJECT ICHOR 알림을 허용해 주세요.';
-  }
+import {firebaseConfig,operatorUid,guideUid} from './firebase-config.js';
+import {getApps,initializeApp} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
+import {getAuth,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
+const app=getApps()[0]||initializeApp(firebaseConfig),auth=getAuth(app);
+const API='https://ichor-notify.m3lon-a25.workers.dev';
+const standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+let currentUser=null,registrationPromise=null;
+const supported=()=>('serviceWorker' in navigator)&&('PushManager' in window)&&('Notification' in window);
+const b64bytes=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-s.length%4)%4)),c=>c.charCodeAt(0));
+async function api(path,payload){
+ if(!currentUser||![operatorUid,guideUid].includes(currentUser.uid))throw Error('SYNC 화면에서 콜이 또는 묘 계정으로 Firebase 로그인해 주세요.');
+ const token=await currentUser.getIdToken();
+ const response=await fetch(API+path,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(payload)});
+ const result=await response.json().catch(()=>({}));
+ if(!response.ok)throw Error(result.error||'서버 연결 실패');
+ return result;
 }
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('./service-worker.js',{scope:'./'}).then(reg=>{pushRegistration=reg}).catch(err=>console.warn('ICHOR service worker:',err));
+function status(text){const el=document.getElementById('pushStatus');if(el)el.textContent=text}
+async function refresh(){
+ const btn=document.getElementById('pushEnable');if(!btn)return;
+ if(!supported()){btn.disabled=true;status('이 환경은 웹 푸시를 지원하지 않습니다.');return}
+ if(/iPhone|iPad|iPod/.test(navigator.userAgent)&&!standalone){btn.disabled=true;status('Safari에서 홈 화면에 추가한 ICHOR 앱으로 실행해 주세요.');return}
+ if(!currentUser||![operatorUid,guideUid].includes(currentUser.uid)){btn.disabled=true;status('먼저 SYNC에서 Firebase 계정으로 로그인해 주세요.');return}
+ if(Notification.permission==='denied'){btn.disabled=true;status('알림이 차단돼 있어요. 아이폰 설정에서 알림을 허용해 주세요.');return}
+ btn.disabled=false;btn.textContent=Notification.permission==='granted'?'CONNECT PUSH NOTIFICATIONS':'ENABLE PUSH NOTIFICATIONS';
+ status(Notification.permission==='granted'?'알림 권한 허용됨 · 버튼을 눌러 기기를 등록해 주세요.':'버튼을 눌러 알림 권한과 기기 등록을 진행해 주세요.');
 }
+if(supported())registrationPromise=navigator.serviceWorker.register('./service-worker.js',{scope:'./'});
+onAuthStateChanged(auth,user=>{currentUser=user;refresh()});
+window.addEventListener('ichor:render',()=>queueMicrotask(refresh));
 document.addEventListener('click',async event=>{
-  if(event.target?.id!=='pushEnable')return;
-  const btn=event.target;
-  const status=document.getElementById('pushStatus');
-  btn.disabled=true;
-  try{
-    const permission=await Notification.requestPermission();
-    if(status)status.textContent=permission==='granted'
-      ?'알림 권한 허용 완료! 실제 메시지 푸시 발송은 서버 연결 후 가능합니다.'
-      :permission==='denied'?'알림 권한이 거부되었습니다. 기기 설정에서 변경할 수 있습니다.':'알림 권한 요청이 완료되지 않았습니다.';
-  }catch(err){if(status)status.textContent='알림 권한 요청 중 오류가 발생했습니다.';}
-  await setupPushUI();
+ if(event.target?.id!=='pushEnable')return;
+ const btn=event.target;btn.disabled=true;
+ try{
+  if(!supported())throw Error('이 기기는 웹 푸시를 지원하지 않습니다.');
+  if(Notification.permission!=='granted'){
+   const permission=await Notification.requestPermission();
+   if(permission!=='granted')throw Error('알림 권한이 허용되지 않았습니다.');
+  }
+  const reg=await registrationPromise;
+  const response=await fetch(API+'/health');
+  if(!response.ok)throw Error('알림 서버에 연결할 수 없습니다.');
+  const health=await response.json();
+  if(health.pushDelivery!=='CONNECTED')throw Error('먼저 새 Cloudflare Worker 코드를 배포해 주세요.');
+  // Public key is delivered from the Worker through a separate authenticated endpoint.
+  const keyResponse=await fetch(API+'/public-key');
+  if(!keyResponse.ok)throw Error('서버 공개키를 읽을 수 없습니다.');
+  const {publicKey}=await keyResponse.json();
+  let subscription=await reg.pushManager.getSubscription();
+  if(!subscription)subscription=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64bytes(publicKey)});
+  await api('/subscribe',{subscription:subscription.toJSON()});
+  status('PUSH CONNECTED / 이 기기에서 메시지 알림을 받을 준비가 됐어요.');
+  btn.textContent='PUSH CONNECTED';
+ }catch(err){status('연결 실패: '+(err.message||err));btn.disabled=false}
 });
-window.addEventListener('ichor:render',()=>queueMicrotask(setupPushUI));
+window.ichorNotifySent=async messageId=>{
+ try{return await api('/send',{messageId})}catch(err){console.warn('Push delivery:',err);return null}
+};
 </script></body></html>
