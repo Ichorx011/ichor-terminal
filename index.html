@@ -98,6 +98,7 @@ html,body{overflow-x:clip}
 @media(max-width:600px){.screen .access-locked{margin-bottom:18px;}.screen .access-login{margin-top:0;max-width:100%;}}
 
 /* V19 · cross-device guiding synchronization */
+.cloud-panel[hidden]{display:none!important}
 .cloud-panel{margin-top:18px;padding:17px;border:1px solid #592631;border-radius:12px;background:#110b0e}
 .cloud-head{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:12px;letter-spacing:.08em;color:#eed8de;font-weight:700}
 #cloudBadge{font-size:10px;color:#bd6574;white-space:nowrap}
@@ -119,6 +120,7 @@ const operatorRole=()=>role==='operator';
 const authorizedRole=()=>role==='operator'||role==='guide';
 function show(message,badge='OFFLINE'){
  const el=UI();if(!el.panel)return;
+ el.panel.hidden=connected&&!!cloudUser&&authorizedRole()&&((operatorRole()&&cloudUser.uid===operatorUid)||(role==='guide'&&cloudUser.uid===guideUid));
  el.badge.textContent=badge;el.msg.textContent=message;
  el.form.hidden=!ready||!!cloudUser;el.logout.hidden=!ready||!cloudUser;
  const save=document.querySelector('[data-action="saveGuiding"]');if(save)save.disabled=!ready||!cloudUser||!operatorRole()||cloudUser.uid!==operatorUid;
